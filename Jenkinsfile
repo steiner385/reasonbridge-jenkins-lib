@@ -17,6 +17,21 @@ pipeline {
         disableConcurrentBuilds(abortPrevious: true)
     }
 
+    triggers {
+        GenericTrigger(
+            genericVariables: [
+                [key: 'ref', value: '$.ref'],
+                [key: 'after', value: '$.after']
+            ],
+            token: 'uniteDiscord-ci',
+            regexpFilterText: '$ref',
+            regexpFilterExpression: '^refs/heads/(main|feature/.*)$',
+            printContributedVariables: true,
+            printPostContent: false,
+            silentResponse: false
+        )
+    }
+
     environment {
         GITHUB_OWNER = 'steiner385'
         GITHUB_REPO = 'uniteDiscord'
