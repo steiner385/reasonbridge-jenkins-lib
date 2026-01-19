@@ -17,20 +17,9 @@ pipeline {
         disableConcurrentBuilds(abortPrevious: true)
     }
 
-    triggers {
-        GenericTrigger(
-            genericVariables: [
-                [key: 'ref', value: '$.ref'],
-                [key: 'after', value: '$.after']
-            ],
-            token: 'uniteDiscord-ci',
-            regexpFilterText: '$ref',
-            regexpFilterExpression: '^refs/heads/(main|feature/.*)$',
-            printContributedVariables: true,
-            printPostContent: false,
-            silentResponse: false
-        )
-    }
+    // NOTE: GenericTrigger is configured via JCasC in the job definition
+    // Do NOT add a triggers {} block here - it causes ClassCastException
+    // when merging with the JCasC trigger configuration
 
     environment {
         GITHUB_OWNER = 'steiner385'
