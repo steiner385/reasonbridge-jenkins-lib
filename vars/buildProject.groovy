@@ -15,13 +15,10 @@
  */
 
 def call(Map config = [:]) {
+    def buildCommand = config.buildCommand ?: 'npm run build'
     def artifacts = config.artifacts ?: 'dist/**'
     def skipIfExists = config.skipIfExists ?: false
     def skipCheckout = config.skipCheckout ?: false
-
-    // Get package manager for build command
-    def pm = pipelineHelpers.getPackageManager()
-    def buildCommand = config.buildCommand ?: "${pm.run} build"
 
     // Ensure source code is present (runners don't share filesystems)
     if (!skipCheckout) {

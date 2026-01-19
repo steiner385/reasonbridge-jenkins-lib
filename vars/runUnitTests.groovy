@@ -17,14 +17,11 @@
 
 def call(Map config = [:]) {
     def statusContext = config.statusContext ?: 'jenkins/unit-tests'
+    def testCommand = config.testCommand ?: 'npm run test:unit -- --coverage'
     def coverageThreshold = config.coverageThreshold ?: 70
     def coverageDir = config.coverageDir ?: 'coverage/lcov-report'
     def enableAllure = config.enableAllure != null ? config.enableAllure : true
     def skipCheckout = config.skipCheckout ?: false
-
-    // Get package manager for test command
-    def pm = pipelineHelpers.getPackageManager()
-    def testCommand = config.testCommand ?: "${pm.run} test:unit -- --coverage"
 
     // Ensure source code is present (runners don't share filesystems)
     if (!skipCheckout) {

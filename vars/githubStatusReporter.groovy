@@ -30,13 +30,10 @@ def call(Map config = [:]) {
     // Get repository info from environment
     def owner = env.GITHUB_OWNER ?: 'steiner385'
     def repo = env.GITHUB_REPO ?: env.JOB_NAME?.split('/')[0]
-    // Use STATUS_COMMIT_SHA (set from webhook data) with priority over GIT_COMMIT
-    // because GIT_COMMIT gets pre-set by Jenkins lightweight checkout and may point
-    // to main branch instead of the actual feature branch being built
-    def sha = env.STATUS_COMMIT_SHA ?: env.GIT_COMMIT
+    def sha = env.GIT_COMMIT
 
     if (!sha) {
-        echo "WARNING: Neither STATUS_COMMIT_SHA nor GIT_COMMIT set, skipping GitHub status update"
+        echo "WARNING: GIT_COMMIT not set, skipping GitHub status update"
         return
     }
 
@@ -98,8 +95,6 @@ def failure(String context, String description = 'Build failed') {
 /**
  * Convenience method to report error status
  */
-def reportError(String context, String description = 'Build error') {
+def error(String context, String description = 'Build error') {
     call(status: 'error', context: context, description: description)
 }
-
-return this

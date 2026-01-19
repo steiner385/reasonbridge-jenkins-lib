@@ -16,15 +16,12 @@
 
 def call(Map config = [:]) {
     def statusContext = config.statusContext ?: 'jenkins/lint'
+    def lintCommand = config.lintCommand ?: 'npm run lint'
+    def typeCheckCommand = config.typeCheckCommand ?: 'npm run type-check'
     def skipLint = config.skipLint ?: false
     def skipTypeCheck = config.skipTypeCheck ?: false
     def typeCheckIgnoreErrors = config.typeCheckIgnoreErrors ?: false
     def skipCheckout = config.skipCheckout ?: false
-
-    // Get package manager for commands
-    def pm = pipelineHelpers.getPackageManager()
-    def lintCommand = config.lintCommand ?: "${pm.run} lint"
-    def typeCheckCommand = config.typeCheckCommand ?: "${pm.run} type-check"
 
     // Ensure source code is present (runners don't share filesystems)
     if (!skipCheckout) {
