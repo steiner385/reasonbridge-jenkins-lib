@@ -2,8 +2,10 @@
 /**
  * Main CI Pipeline for uniteDiscord
  *
- * Uses local shared library functions from .jenkins/vars/
+ * Uses local shared library functions from vars/
  */
+
+@Library("unitediscord-lib") _
 
 pipeline {
     agent any
