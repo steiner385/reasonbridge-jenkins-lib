@@ -80,20 +80,89 @@ pipeline {
                 // Inject AWS credentials for Bedrock AI service tests via shared library
                 script {
                     withAwsCredentials {
-                        // Run tests with JSON output for intelligent failure analysis
-                        // Use pipefail to capture Jest's exit code, not tee's
+                        // Run unit tests (backend + frontend) with Allure reporting
+                        // Use pipefail to capture vitest's exit code, not tee's
                         def testResult = sh(
                             script: '''#!/bin/bash
                                 set -o pipefail
-                                npx pnpm run test:unit -- --reporter=json --outputFile=test-results.json 2>&1 | tee test-output.log
+                                npx pnpm run test:unit 2>&1 | tee test-output.log
                             ''',
                             returnStatus: true
                         )
-                        env.TEST_EXIT_CODE = testResult.toString()
-                        env.TEST_RESULTS_FILE = 'test-results.json'
+                        env.UNIT_TEST_EXIT_CODE = testResult.toString()
 
                         if (testResult != 0) {
-                            error("Unit tests failed with exit code ${testResult}")
+                            echo "WARNING: Unit tests failed with exit code ${testResult} - continuing to collect all test results"
+                            env.UNIT_TESTS_FAILED = 'true'
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Integration Tests') {
+            steps {
+                script {
+                    withAwsCredentials {
+                        // Run integration tests with Allure reporting
+                        def testResult = sh(
+                            script: '''#!/bin/bash
+                                set -o pipefail
+                                npx pnpm run test:integration 2>&1 | tee integration-test-output.log
+                            ''',
+                            returnStatus: true
+                        )
+                        env.INTEGRATION_TEST_EXIT_CODE = testResult.toString()
+
+                        if (testResult != 0) {
+                            echo "WARNING: Integration tests failed with exit code ${testResult} - continuing to collect all test results"
+                            env.INTEGRATION_TESTS_FAILED = 'true'
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Contract Tests') {
+            steps {
+                script {
+                    withAwsCredentials {
+                        // Run contract tests with Allure reporting
+                        def testResult = sh(
+                            script: '''#!/bin/bash
+                                set -o pipefail
+                                npx pnpm run test:contract 2>&1 | tee contract-test-output.log
+                            ''',
+                            returnStatus: true
+                        )
+                        env.CONTRACT_TEST_EXIT_CODE = testResult.toString()
+
+                        if (testResult != 0) {
+                            echo "WARNING: Contract tests failed with exit code ${testResult} - continuing to collect all test results"
+                            env.CONTRACT_TESTS_FAILED = 'true'
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('E2E Tests') {
+            steps {
+                script {
+                    withAwsCredentials {
+                        // Run E2E tests with Allure reporting
+                        def testResult = sh(
+                            script: '''#!/bin/bash
+                                set -o pipefail
+                                npx pnpm run test:e2e 2>&1 | tee e2e-test-output.log
+                            ''',
+                            returnStatus: true
+                        )
+                        env.E2E_TEST_EXIT_CODE = testResult.toString()
+
+                        if (testResult != 0) {
+                            echo "WARNING: E2E tests failed with exit code ${testResult} - continuing to collect all test results"
+                            env.E2E_TESTS_FAILED = 'true'
                         }
                     }
                 }
@@ -105,19 +174,73 @@ pipeline {
                 sh 'npx pnpm run build'
             }
         }
+
+        stage('Validate Test Results') {
+            steps {
+                script {
+                    def failedTests = []
+                    if (env.UNIT_TESTS_FAILED == 'true') {
+                        failedTests.add('Unit Tests')
+                    }
+                    if (env.INTEGRATION_TESTS_FAILED == 'true') {
+                        failedTests.add('Integration Tests')
+                    }
+                    if (env.CONTRACT_TESTS_FAILED == 'true') {
+                        failedTests.add('Contract Tests')
+                    }
+                    if (env.E2E_TESTS_FAILED == 'true') {
+                        failedTests.add('E2E Tests')
+                    }
+
+                    if (failedTests.size() > 0) {
+                        error("The following test suites failed: ${failedTests.join(', ')}")
+                    }
+
+                    echo "✓ All test suites passed!"
+                }
+            }
+        }
     }
 
     post {
         always {
-            // Publish Allure test reports if results exist
+            // Consolidate Allure results from all test types (unit, integration, contract, frontend, e2e)
             script {
-                if (fileExists('allure-results')) {
+                sh '''
+                    #!/bin/bash
+                    set +e
+
+                    # Create consolidated allure-results directory
+                    mkdir -p consolidated-allure-results
+
+                    # Copy results from all test suites
+                    for dir in allure-results/*/; do
+                        if [ -d "$dir" ]; then
+                            echo "Copying Allure results from $dir"
+                            cp -r "$dir"* consolidated-allure-results/ 2>/dev/null || true
+                        fi
+                    done
+
+                    set -e
+                '''
+            }
+
+            // Publish consolidated Allure test reports if results exist
+            script {
+                if (fileExists('consolidated-allure-results') && !sh(script: 'test -z "$(ls -A consolidated-allure-results)"', returnStatus: true)) {
                     allure([
                         includeProperties: false,
                         jdk: '',
-                        results: [[path: 'allure-results']]
+                        results: [[path: 'consolidated-allure-results']]
                     ])
+                } else {
+                    echo 'No Allure results found to publish'
                 }
+            }
+
+            // Publish JUnit test results
+            script {
+                junit testResults: 'coverage/**/*.xml', allowEmptyResults: true
             }
         }
         success {
