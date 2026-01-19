@@ -178,7 +178,7 @@ pipeline {
 
             // Publish JUnit test results
             script {
-                junit testResults: 'coverage/**/*.xml', allowEmptyResults: true
+                junit testResults: 'coverage/**/*.xml', allowEmptyResults: true, skipPublishingChecks: true
             }
         }
         success {
