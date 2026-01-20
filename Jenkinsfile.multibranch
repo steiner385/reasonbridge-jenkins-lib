@@ -86,10 +86,13 @@ pipeline {
         stage('Install Dependencies') {
             steps {
                 sh '''
+                    # Clean stale node_modules to force fresh install
+                    rm -rf node_modules
+
                     # Remove .npmrc (contains pnpm-specific configs that break npm/npx)
                     rm -f .npmrc
 
-                    # Use npx to run pnpm without global installation
+                    # Fresh install with pnpm
                     npx --yes pnpm@latest install --frozen-lockfile
                 '''
             }
@@ -97,7 +100,16 @@ pipeline {
 
         stage('Build Packages') {
             steps {
-                sh 'npx pnpm --filter "./packages/*" -r run build'
+                sh '''
+                    # Build packages AND generate Prisma client
+                    npx pnpm --filter "./packages/*" -r run build
+
+                    # Verify packages are linked correctly
+                    echo "=== Verifying workspace package links ==="
+                    ls -la node_modules/@unite-discord/ || echo "WARNING: @unite-discord packages not linked"
+                    ls -la node_modules/@prisma/client/ || echo "WARNING: @prisma/client not found"
+                    ls -la node_modules/.pnpm/ | head -20 || echo "WARNING: .pnpm store missing"
+                '''
             }
         }
 
