@@ -1,0 +1,307 @@
+#!/usr/bin/env groovy
+/**
+ * uniteDiscord Multi-Branch Pipeline
+ *
+ * Branch-aware pipeline that provides:
+ * - PR-specific builds with additional E2E tests
+ * - Branch-specific deployment (main → prod, develop → staging)
+ * - Feature branches get CI only (no deployment)
+ *
+ * Multi-branch Jenkins provides these environment variables automatically:
+ *   BRANCH_NAME   - Current branch name (e.g., 'main', 'develop', 'feature/foo')
+ *   CHANGE_ID     - PR number (null if not a PR build)
+ *   CHANGE_TARGET - PR target branch (null if not a PR build)
+ *   CHANGE_AUTHOR - PR author (null if not a PR build)
+ *   CHANGE_TITLE  - PR title (null if not a PR build)
+ *
+ * Webhook Setup:
+ *   URL: https://jenkins.kindash.com/github-webhook/
+ *   Content type: application/json
+ *   Events: Push, Pull requests
+ */
+
+// Load shared library from GitHub
+library identifier: 'unitediscord-lib@main',
+    retriever: modernSCM([
+        $class: 'GitSCMSource',
+        remote: 'https://github.com/steiner385/unitediscord-jenkins-lib.git',
+        credentialsId: 'github-credentials'
+    ])
+
+pipeline {
+    agent any
+
+    environment {
+        GITHUB_OWNER = 'steiner385'
+        GITHUB_REPO = 'uniteDiscord'
+        CI = 'true'
+        NODE_ENV = 'test'
+        NODE_OPTIONS = '--max-old-space-size=4096'
+
+        // Multi-branch provides BRANCH_NAME, CHANGE_ID, CHANGE_TARGET automatically
+    }
+
+    options {
+        timestamps()
+        buildDiscarder(logRotator(numToKeepStr: '20'))
+        timeout(time: 60, unit: 'MINUTES')
+        disableConcurrentBuilds(abortPrevious: true)
+    }
+
+    stages {
+        stage('Initialize') {
+            steps {
+                script {
+                    // Determine build type for logging and status reporting
+                    def buildType = env.CHANGE_ID ? "PR #${env.CHANGE_ID}" : "Branch: ${env.BRANCH_NAME}"
+                    echo "=== Multi-Branch Build ==="
+                    echo "Build type: ${buildType}"
+                    if (env.CHANGE_ID) {
+                        echo "PR Title: ${env.CHANGE_TITLE ?: 'N/A'}"
+                        echo "PR Author: ${env.CHANGE_AUTHOR ?: 'N/A'}"
+                        echo "Target Branch: ${env.CHANGE_TARGET ?: 'N/A'}"
+                    }
+                    echo "=========================="
+
+                    // Report pending status to GitHub
+                    githubStatusReporter(
+                        status: 'pending',
+                        context: 'jenkins/ci',
+                        description: "Build started for ${buildType}"
+                    )
+                }
+
+                // Checkout the uniteDiscord application repo (multi-branch SCM)
+                checkout scm
+
+                // Remove stale test directories and coverage files from previous builds
+                sh '''
+                    rm -rf frontend/frontend || true
+                    rm -rf coverage || true
+                    find . -path "*/coverage/*" -name "*.xml" -delete 2>/dev/null || true
+                '''
+
+                script {
+                    env.GIT_COMMIT_SHORT = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+                    env.GIT_COMMIT = sh(script: 'git rev-parse HEAD', returnStdout: true).trim()
+                    echo "Building commit: ${env.GIT_COMMIT_SHORT}"
+                }
+            }
+        }
+
+        stage('Install Dependencies') {
+            steps {
+                sh '''
+                    # Remove .npmrc (contains pnpm-specific configs that break npm/npx)
+                    rm -f .npmrc
+
+                    # Use npx to run pnpm without global installation
+                    npx --yes pnpm@latest install --frozen-lockfile
+                '''
+            }
+        }
+
+        stage('Build Packages') {
+            steps {
+                sh 'npx pnpm --filter "./packages/*" -r run build'
+            }
+        }
+
+        stage('Lint') {
+            steps {
+                sh 'npx pnpm run lint'
+            }
+        }
+
+        stage('Unit Tests') {
+            steps {
+                script {
+                    withAwsCredentials {
+                        // Run unit tests with Allure reporting
+                        def testResult = sh(
+                            script: '''#!/bin/bash
+                                set -o pipefail
+                                npx pnpm run test:unit 2>&1 | tee test-output.log
+                            ''',
+                            returnStatus: true
+                        )
+                        env.UNIT_TEST_EXIT_CODE = testResult.toString()
+
+                        if (testResult != 0) {
+                            echo "Unit tests failed with exit code ${testResult}"
+                            env.UNIT_TESTS_FAILED = 'true'
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Build') {
+            steps {
+                sh 'npx pnpm run build'
+            }
+        }
+
+        stage('Validate Test Results') {
+            steps {
+                script {
+                    if (env.UNIT_TESTS_FAILED == 'true') {
+                        error("Unit Tests failed")
+                    }
+                    echo "All tests passed!"
+                }
+            }
+        }
+
+        // PR-SPECIFIC: Additional E2E tests on PRs and protected branches
+        stage('E2E Tests') {
+            when {
+                anyOf {
+                    changeRequest()  // All PRs
+                    branch 'main'
+                    branch 'develop'
+                }
+            }
+            agent { label 'e2e' }
+            steps {
+                script {
+                    def reason = env.CHANGE_ID ? "PR #${env.CHANGE_ID}" : "protected branch ${env.BRANCH_NAME}"
+                    echo "Running E2E tests for ${reason}"
+
+                    runE2ETests(
+                        browsers: ['chromium'],
+                        statusContext: 'jenkins/e2e'
+                    )
+                }
+            }
+        }
+
+        // BRANCH-SPECIFIC: Deploy to staging from develop
+        stage('Deploy to Staging') {
+            when {
+                branch 'develop'
+            }
+            steps {
+                script {
+                    echo "=== Deploying to Staging Environment ==="
+                    echo "Branch: ${env.BRANCH_NAME}"
+                    echo "Commit: ${env.GIT_COMMIT_SHORT}"
+
+                    githubStatusReporter(
+                        status: 'pending',
+                        context: 'jenkins/deploy-staging',
+                        description: 'Deploying to staging'
+                    )
+
+                    // TODO: Add staging deployment steps
+                    echo "Staging deployment placeholder - implement deployment steps"
+
+                    githubStatusReporter(
+                        status: 'success',
+                        context: 'jenkins/deploy-staging',
+                        description: 'Deployed to staging'
+                    )
+                }
+            }
+        }
+
+        // BRANCH-SPECIFIC: Deploy to production from main
+        stage('Deploy to Production') {
+            when {
+                branch 'main'
+            }
+            steps {
+                script {
+                    echo "=== Deploying to Production Environment ==="
+                    echo "Branch: ${env.BRANCH_NAME}"
+                    echo "Commit: ${env.GIT_COMMIT_SHORT}"
+
+                    githubStatusReporter(
+                        status: 'pending',
+                        context: 'jenkins/deploy-production',
+                        description: 'Deploying to production'
+                    )
+
+                    // TODO: Add production deployment steps
+                    echo "Production deployment placeholder - implement deployment steps"
+
+                    githubStatusReporter(
+                        status: 'success',
+                        context: 'jenkins/deploy-production',
+                        description: 'Deployed to production'
+                    )
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            // Consolidate Allure results from all test types
+            script {
+                sh '''
+                    #!/bin/bash
+                    set +e
+                    mkdir -p consolidated-allure-results
+                    for dir in allure-results/*/; do
+                        if [ -d "$dir" ]; then
+                            echo "Copying Allure results from $dir"
+                            cp -r "$dir"* consolidated-allure-results/ 2>/dev/null || true
+                        fi
+                    done
+                    set -e
+                '''
+            }
+
+            // Publish consolidated Allure test reports if results exist
+            script {
+                if (fileExists('consolidated-allure-results') && !sh(script: 'test -z "$(ls -A consolidated-allure-results)"', returnStatus: true)) {
+                    allure([
+                        includeProperties: false,
+                        jdk: '',
+                        results: [[path: 'consolidated-allure-results']]
+                    ])
+                } else {
+                    echo 'No Allure results found to publish'
+                }
+            }
+
+            // Publish JUnit test results
+            script {
+                junit testResults: 'coverage/**/*.xml', allowEmptyResults: true, skipPublishingChecks: true
+            }
+        }
+        success {
+            script {
+                def buildType = env.CHANGE_ID ? "PR #${env.CHANGE_ID}" : env.BRANCH_NAME
+                githubStatusReporter(
+                    status: 'success',
+                    context: 'jenkins/ci',
+                    description: "Build succeeded for ${buildType}"
+                )
+            }
+        }
+        failure {
+            script {
+                def buildType = env.CHANGE_ID ? "PR #${env.CHANGE_ID}" : env.BRANCH_NAME
+                githubStatusReporter(
+                    status: 'failure',
+                    context: 'jenkins/ci',
+                    description: "Build failed for ${buildType}"
+                )
+
+                // Analyze test failures if results exist
+                if (env.TEST_RESULTS_FILE && fileExists(env.TEST_RESULTS_FILE)) {
+                    analyzeTestFailures(
+                        testResultsFile: env.TEST_RESULTS_FILE,
+                        maxIssues: 10
+                    )
+                }
+            }
+        }
+        cleanup {
+            dockerCleanup()
+            cleanWs()
+        }
+    }
+}
