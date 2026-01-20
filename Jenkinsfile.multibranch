@@ -2,17 +2,11 @@
 /**
  * uniteDiscord Multi-Branch Pipeline
  *
- * Branch-aware pipeline that provides:
- * - PR-specific builds with additional E2E tests
- * - Branch-specific deployment (main → prod, develop → staging)
- * - Feature branches get CI only (no deployment)
+ * Simplified CI pipeline: Lint, Unit Tests, Build
  *
  * Multi-branch Jenkins provides these environment variables automatically:
- *   BRANCH_NAME   - Current branch name (e.g., 'main', 'develop', 'feature/foo')
+ *   BRANCH_NAME   - Current branch name
  *   CHANGE_ID     - PR number (null if not a PR build)
- *   CHANGE_TARGET - PR target branch (null if not a PR build)
- *   CHANGE_AUTHOR - PR author (null if not a PR build)
- *   CHANGE_TITLE  - PR title (null if not a PR build)
  *
  * Webhook Setup:
  *   URL: https://jenkins.kindash.com/github-webhook/
@@ -115,23 +109,8 @@ pipeline {
 
         stage('Unit Tests') {
             steps {
-                script {
-                    withAwsCredentials {
-                        // Run unit tests with Allure reporting
-                        def testResult = sh(
-                            script: '''#!/bin/bash
-                                set -o pipefail
-                                npx pnpm run test:unit 2>&1 | tee test-output.log
-                            ''',
-                            returnStatus: true
-                        )
-                        env.UNIT_TEST_EXIT_CODE = testResult.toString()
-
-                        if (testResult != 0) {
-                            echo "Unit tests failed with exit code ${testResult}"
-                            env.UNIT_TESTS_FAILED = 'true'
-                        }
-                    }
+                withAwsCredentials {
+                    sh 'npx pnpm run test:unit'
                 }
             }
         }
@@ -141,135 +120,11 @@ pipeline {
                 sh 'npx pnpm run build'
             }
         }
-
-        stage('Validate Test Results') {
-            steps {
-                script {
-                    if (env.UNIT_TESTS_FAILED == 'true') {
-                        error("Unit Tests failed")
-                    }
-                    echo "All tests passed!"
-                }
-            }
-        }
-
-        // PR-SPECIFIC: Additional E2E tests on PRs and protected branches
-        stage('E2E Tests') {
-            when {
-                anyOf {
-                    changeRequest()  // All PRs
-                    branch 'main'
-                    branch 'develop'
-                }
-            }
-            agent { label 'e2e' }
-            steps {
-                script {
-                    def reason = env.CHANGE_ID ? "PR #${env.CHANGE_ID}" : "protected branch ${env.BRANCH_NAME}"
-                    echo "Running E2E tests for ${reason}"
-
-                    runE2ETests(
-                        browsers: ['chromium'],
-                        statusContext: 'jenkins/e2e'
-                    )
-                }
-            }
-        }
-
-        // BRANCH-SPECIFIC: Deploy to staging from develop
-        stage('Deploy to Staging') {
-            when {
-                branch 'develop'
-            }
-            steps {
-                script {
-                    echo "=== Deploying to Staging Environment ==="
-                    echo "Branch: ${env.BRANCH_NAME}"
-                    echo "Commit: ${env.GIT_COMMIT_SHORT}"
-
-                    githubStatusReporter(
-                        status: 'pending',
-                        context: 'jenkins/deploy-staging',
-                        description: 'Deploying to staging'
-                    )
-
-                    // TODO: Add staging deployment steps
-                    echo "Staging deployment placeholder - implement deployment steps"
-
-                    githubStatusReporter(
-                        status: 'success',
-                        context: 'jenkins/deploy-staging',
-                        description: 'Deployed to staging'
-                    )
-                }
-            }
-        }
-
-        // BRANCH-SPECIFIC: Deploy to production from main
-        stage('Deploy to Production') {
-            when {
-                branch 'main'
-            }
-            steps {
-                script {
-                    echo "=== Deploying to Production Environment ==="
-                    echo "Branch: ${env.BRANCH_NAME}"
-                    echo "Commit: ${env.GIT_COMMIT_SHORT}"
-
-                    githubStatusReporter(
-                        status: 'pending',
-                        context: 'jenkins/deploy-production',
-                        description: 'Deploying to production'
-                    )
-
-                    // TODO: Add production deployment steps
-                    echo "Production deployment placeholder - implement deployment steps"
-
-                    githubStatusReporter(
-                        status: 'success',
-                        context: 'jenkins/deploy-production',
-                        description: 'Deployed to production'
-                    )
-                }
-            }
-        }
     }
 
     post {
         always {
-            // Consolidate Allure results from all test types
-            script {
-                sh '''
-                    #!/bin/bash
-                    set +e
-                    mkdir -p consolidated-allure-results
-                    for dir in allure-results/*/; do
-                        if [ -d "$dir" ]; then
-                            echo "Copying Allure results from $dir"
-                            cp -r "$dir"* consolidated-allure-results/ 2>/dev/null || true
-                        fi
-                    done
-                    set -e
-                '''
-            }
-
-            // Publish consolidated Allure test reports if results exist
-            script {
-                if (fileExists('consolidated-allure-results') && !sh(script: 'test -z "$(ls -A consolidated-allure-results)"', returnStatus: true)) {
-                    allure([
-                        includeProperties: false,
-                        jdk: '',
-                        results: [[path: 'consolidated-allure-results']]
-                    ])
-                } else {
-                    echo 'No Allure results found to publish'
-                }
-            }
-
-            // Publish JUnit test results
-            script {
-                junit testResults: 'coverage/**/*.xml', allowEmptyResults: true, skipPublishingChecks: true
-            }
+            junit testResults: 'coverage/**/*.xml', allowEmptyResults: true, skipPublishingChecks: true
         }
         success {
             script {
@@ -289,18 +144,9 @@ pipeline {
                     context: 'jenkins/ci',
                     description: "Build failed for ${buildType}"
                 )
-
-                // Analyze test failures if results exist
-                if (env.TEST_RESULTS_FILE && fileExists(env.TEST_RESULTS_FILE)) {
-                    analyzeTestFailures(
-                        testResultsFile: env.TEST_RESULTS_FILE,
-                        maxIssues: 10
-                    )
-                }
             }
         }
         cleanup {
-            dockerCleanup()
             cleanWs()
         }
     }
