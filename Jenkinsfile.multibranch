@@ -124,7 +124,21 @@ pipeline {
 
     post {
         always {
+            // Publish JUnit test results
             junit testResults: 'coverage/**/*.xml', allowEmptyResults: true, skipPublishingChecks: true
+
+            // Publish Allure test reports
+            script {
+                def allureDirs = ['allure-results', 'frontend/allure-results', 'backend/allure-results']
+                def existingDirs = allureDirs.findAll { fileExists(it) }
+                if (existingDirs) {
+                    allure([
+                        includeProperties: false,
+                        jdk: '',
+                        results: existingDirs.collect { [path: it] }
+                    ])
+                }
+            }
         }
         success {
             script {
