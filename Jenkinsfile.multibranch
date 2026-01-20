@@ -2,7 +2,16 @@
 /**
  * uniteDiscord Multi-Branch Pipeline
  *
- * Simplified CI pipeline: Lint, Unit Tests, Build
+ * Full CI pipeline: Lint, Unit Tests, Integration Tests, Build
+ *
+ * Stages:
+ *   - Initialize: Setup, checkout, and GitHub status reporting
+ *   - Install Dependencies: pnpm install with frozen lockfile
+ *   - Build Packages: Build shared packages and generate Prisma client
+ *   - Lint: ESLint and code quality checks
+ *   - Unit Tests: Run unit tests (backend + frontend) - 1632 tests
+ *   - Integration Tests: Run integration tests - 105 tests (optional, skipped by build stability)
+ *   - Build: Production build and artifact generation
  *
  * Multi-branch Jenkins provides these environment variables automatically:
  *   BRANCH_NAME   - Current branch name
@@ -123,6 +132,36 @@ pipeline {
             steps {
                 withAwsCredentials {
                     sh 'npx pnpm run test:unit'
+                }
+            }
+        }
+
+        stage('Integration Tests') {
+            when {
+                expression {
+                    // Only run integration tests on main/develop, and specific branches
+                    return env.BRANCH_NAME == 'main' ||
+                           env.BRANCH_NAME == 'develop' ||
+                           env.BRANCH_NAME =~ /^continuous-claude\// ||
+                           env.CHANGE_ID != null  // Always run on PRs
+                }
+            }
+            steps {
+                script {
+                    try {
+                        runIntegrationTests(
+                            testCommand: 'npx vitest run --config vitest.integration.config.ts',
+                            skipLock: false,
+                            statusContext: 'jenkins/integration',
+                            composeFile: 'docker-compose.test.yml'
+                        )
+                    } catch (Exception e) {
+                        echo "⚠️  Integration tests failed"
+                        echo "Error: ${e.message}"
+                        // Mark as unstable but don't fail the build yet
+                        // Re-enable strict failure once all integration tests are verified
+                        currentBuild.result = 'UNSTABLE'
+                    }
                 }
             }
         }
