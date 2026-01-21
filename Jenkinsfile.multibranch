@@ -97,8 +97,12 @@ pipeline {
         stage('Install Dependencies') {
             steps {
                 sh '''
-                    # Clean stale node_modules to force fresh install
+                    # Clean stale node_modules and pnpm cache to force fresh install
                     rm -rf node_modules
+                    rm -rf .pnpm
+
+                    # Clear pnpm store cache to prevent symlink issues
+                    npx --yes pnpm@latest store prune || true
 
                     # Remove .npmrc (contains pnpm-specific configs that break npm/npx)
                     rm -f .npmrc
