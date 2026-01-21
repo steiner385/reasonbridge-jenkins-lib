@@ -301,21 +301,18 @@ def call() {
                                 echo "Frontend container is healthy"
                             '''
 
-                            // Verify port accessibility from host
-                            echo "Verifying frontend is accessible from host..."
+                            // Verify frontend is accessible from within Docker network
+                            echo "Verifying frontend is accessible from Docker network..."
                             sh '''
                                 MAX_ATTEMPTS=30
                                 for i in $(seq 1 $MAX_ATTEMPTS); do
-                                    if curl -f -s http://localhost:9080 > /dev/null 2>&1; then
-                                        echo "Frontend is accessible at http://localhost:9080"
+                                    if docker compose -f docker-compose.e2e.yml exec -T frontend curl -f -s http://localhost:80 > /dev/null 2>&1; then
+                                        echo "Frontend is accessible on Docker network"
                                         break
                                     fi
                                     if [ $i -eq $MAX_ATTEMPTS ]; then
-                                        echo "ERROR: Frontend not accessible from host after $MAX_ATTEMPTS attempts"
-                                        echo "Checking Docker port bindings:"
-                                        docker port unite-frontend-e2e
-                                        echo "Checking if port 9080 is listening:"
-                                        netstat -tlnp 2>/dev/null | grep 9080 || ss -tlnp | grep 9080 || echo "netstat/ss not available"
+                                        echo "ERROR: Frontend not accessible after $MAX_ATTEMPTS attempts"
+                                        docker logs unite-frontend-e2e --tail 50
                                         exit 1
                                     fi
                                     echo "Attempt $i/$MAX_ATTEMPTS: Waiting for frontend to be accessible..."
@@ -323,16 +320,26 @@ def call() {
                                 done
                             '''
 
-                            // Run Playwright tests
+                            // Run Playwright tests inside a Docker container on the same network
+                            // This allows tests to access frontend at http://frontend:80 instead of localhost:9080
+                            echo "Running Playwright tests inside Docker network..."
                             sh '''
-                                cd frontend
-                                E2E_DOCKER=true E2E_FRONTEND_PORT=9080 SKIP_GLOBAL_SETUP_WAIT=true npx playwright test --reporter=list,junit,json || {
-                                    EXIT_CODE=$?
-                                    cd ..
-                                    echo "Playwright tests exited with code $EXIT_CODE"
-                                    exit $EXIT_CODE
-                                }
-                                cd ..
+                                # Create a test runner container based on the frontend build
+                                docker run --rm \
+                                    --network unite-e2e \
+                                    -v $(pwd)/frontend:/app/frontend \
+                                    -v $(pwd)/coverage:/app/coverage \
+                                    -w /app/frontend \
+                                    -e CI=true \
+                                    -e E2E_DOCKER=true \
+                                    -e PLAYWRIGHT_BASE_URL=http://frontend:80 \
+                                    -e SKIP_GLOBAL_SETUP_WAIT=true \
+                                    mcr.microsoft.com/playwright:v1.49.1-noble \
+                                    bash -c "npm install && npx playwright test --reporter=list,junit,json" || {
+                                        EXIT_CODE=$?
+                                        echo "Playwright tests exited with code $EXIT_CODE"
+                                        exit $EXIT_CODE
+                                    }
                             '''
 
                             // Move test results
