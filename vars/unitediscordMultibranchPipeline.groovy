@@ -284,7 +284,7 @@ def call() {
                                 "
 
                                 # Copy db-models into discussion-service container and run migrations there
-                                docker cp packages/db-models tibranch_feat_e2e-docker-compose-discussion-service:/app/
+                                docker cp packages/db-models unite-discussion-service-e2e:/app/
 
                                 docker compose -f docker-compose.e2e.yml exec -T discussion-service sh -c "
                                     cd /app/db-models && \\
