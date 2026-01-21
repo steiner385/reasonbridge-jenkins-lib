@@ -96,9 +96,6 @@ def call() {
                         # Clean stale node_modules to force fresh install
                         rm -rf node_modules
 
-                        # Remove .npmrc (contains pnpm-specific configs that break npm/npx)
-                        rm -f .npmrc
-
                         # Fresh install with pnpm
                         npx --yes pnpm@latest install --frozen-lockfile
                     '''
