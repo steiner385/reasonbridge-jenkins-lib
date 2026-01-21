@@ -181,6 +181,15 @@ def call() {
 
                             // Clean up any existing E2E containers from previous runs
                             echo "Cleaning up existing E2E containers..."
+
+                            // Force remove all E2E containers directly (handles stale containers that docker-compose can't read)
+                            sh '''
+                                # Remove all containers with unite-*-e2e naming pattern
+                                docker ps -a -q -f "name=unite-.*-e2e" | xargs -r docker rm -f 2>/dev/null || true
+                                docker ps -a -q -f "name=.*_feat_e2e-docker-compose.*" | xargs -r docker rm -f 2>/dev/null || true
+                            '''
+
+                            // Remove volumes and networks
                             dockerCompose.safe('down -v --remove-orphans', 'docker-compose.e2e.yml')
 
                             // Install Playwright browsers
