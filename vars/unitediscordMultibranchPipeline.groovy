@@ -200,21 +200,21 @@ def call() {
                             dockerCompose.safe('down -v --remove-orphans', 'docker-compose.e2e.yml')
 
                             // Diagnostic: Check what's using E2E ports before cleanup
-                            echo "Checking processes on E2E ports (5433, 6380, 4567)..."
+                            echo "Checking processes on E2E ports (5434, 6381, 4568)..."
                             sh '''
-                                echo "=== Processes on port 5433 (postgres) ==="
-                                lsof -i :5433 2>/dev/null || echo "No process found on port 5433"
-                                echo "=== Processes on port 6380 (redis) ==="
-                                lsof -i :6380 2>/dev/null || echo "No process found on port 6380"
-                                echo "=== Processes on port 4567 (localstack) ==="
-                                lsof -i :4567 2>/dev/null || echo "No process found on port 4567"
+                                echo "=== Processes on port 5434 (postgres) ==="
+                                lsof -i :5434 2>/dev/null || echo "No process found on port 5434"
+                                echo "=== Processes on port 6381 (redis) ==="
+                                lsof -i :6381 2>/dev/null || echo "No process found on port 6381"
+                                echo "=== Processes on port 4568 (localstack) ==="
+                                lsof -i :4568 2>/dev/null || echo "No process found on port 4568"
                             '''
 
                             // Force kill any processes on E2E ports
                             echo "Killing processes on E2E ports..."
                             sh '''
                                 # Kill processes on ports used by E2E environment
-                                for port in 5433 6380 4567; do
+                                for port in 5434 6381 4568; do
                                     echo "Killing processes on port $port..."
                                     (lsof -ti :$port 2>/dev/null || fuser $port/tcp 2>/dev/null) | xargs -r kill -9 2>/dev/null || true
                                 done
