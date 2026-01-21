@@ -271,7 +271,7 @@ def call() {
                             // Run Playwright tests
                             sh '''
                                 cd frontend
-                                E2E_DOCKER=true npx playwright test --reporter=list,junit,json || {
+                                E2E_DOCKER=true E2E_FRONTEND_PORT=9080 npx playwright test --reporter=list,junit,json || {
                                     EXIT_CODE=$?
                                     cd ..
                                     echo "Playwright tests exited with code $EXIT_CODE"
