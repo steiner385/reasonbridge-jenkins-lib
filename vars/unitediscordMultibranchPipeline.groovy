@@ -272,6 +272,18 @@ def call() {
                             echo "Setting up E2E database..."
                             sh '''
                                 cd packages/db-models
+
+                                # Wait for postgres to be ready for connections (retry logic)
+                                echo "Waiting for postgres to accept connections..."
+                                for i in 1 2 3 4 5; do
+                                    if DATABASE_URL="postgresql://unite_test:unite_test@localhost:5434/unite_test" npx prisma db execute --stdin <<< "SELECT 1;" 2>/dev/null; then
+                                        echo "Postgres is ready for connections"
+                                        break
+                                    fi
+                                    echo "Attempt $i: Postgres not ready yet, waiting 3 seconds..."
+                                    sleep 3
+                                done
+
                                 echo "Running Prisma migrations on E2E database..."
                                 DATABASE_URL="postgresql://unite_test:unite_test@localhost:5434/unite_test" npx prisma migrate deploy
                                 echo "Seeding E2E database with test data..."
