@@ -374,8 +374,8 @@ def call() {
                             '''
 
                             // Run Playwright tests inside a Docker container on the same network
-                            // Use docker cp instead of volume mounts to avoid Docker-in-Docker issues
-                            // (Jenkins agents run in containers, so volume mounts don't work with sibling containers)
+                            // Use tar with --dereference to handle pnpm's symlinked node_modules
+                            // (docker cp cannot handle symlinks, tar -h follows them)
                             echo "Running Playwright tests inside Docker network..."
                             sh '''
                                 echo "DEBUG: =========================================="
@@ -385,11 +385,10 @@ def call() {
                                 echo "DEBUG: Playwright version: v1.57.0-noble"
                                 echo "DEBUG: =========================================="
 
-                                # Create a named container (not --rm) so we can docker cp into it
                                 CONTAINER_NAME="playwright-e2e-runner-$$"
 
                                 echo "Creating Playwright container: $CONTAINER_NAME"
-                                docker create \
+                                docker run -d \
                                     --name "$CONTAINER_NAME" \
                                     --network unitediscord_unite-e2e \
                                     -w /app/frontend \
@@ -398,36 +397,39 @@ def call() {
                                     -e PLAYWRIGHT_BASE_URL=http://frontend:80 \
                                     -e SKIP_GLOBAL_SETUP_WAIT=true \
                                     mcr.microsoft.com/playwright:v1.57.0-noble \
-                                    bash -c "
-                                        echo 'DEBUG: Inside container - Starting E2E test execution'
-                                        echo 'DEBUG: Working directory:' \$(pwd)
-                                        echo 'DEBUG: PLAYWRIGHT_BASE_URL=' \$PLAYWRIGHT_BASE_URL
-                                        ls -la /app/frontend/
+                                    sleep infinity
 
-                                        echo 'DEBUG: Installing npm dependencies...'
-                                        npm install 2>&1 | tee /tmp/npm-install.log || {
-                                            echo 'ERROR: npm install failed'
-                                            cat /tmp/npm-install.log
-                                            exit 1
-                                        }
+                                # Copy frontend files using tar to handle pnpm symlinks
+                                # -h/--dereference follows symlinks (copies the actual files)
+                                echo "Copying frontend files to container (using tar to handle symlinks)..."
+                                tar -chf - -C frontend . | docker exec -i "$CONTAINER_NAME" tar -xf - -C /app/frontend/
 
-                                        echo 'DEBUG: npm install complete'
-                                        echo 'DEBUG: Starting Playwright tests...'
-                                        echo '=========================================='
-
-                                        npx playwright test --reporter=list,junit,json
-                                    "
-
-                                # Copy frontend files into the container
-                                echo "Copying frontend files to container..."
-                                docker cp frontend/. "$CONTAINER_NAME":/app/frontend/
+                                echo "DEBUG: Files copied. Listing /app/frontend/:"
+                                docker exec "$CONTAINER_NAME" ls -la /app/frontend/
 
                                 # Create coverage directory in container
                                 docker exec "$CONTAINER_NAME" mkdir -p /app/coverage 2>/dev/null || true
 
-                                # Start the container and capture output
-                                echo "Starting Playwright tests..."
-                                docker start -a "$CONTAINER_NAME" || {
+                                # Run npm install and Playwright tests
+                                echo "Running npm install and Playwright tests..."
+                                docker exec "$CONTAINER_NAME" bash -c "
+                                    echo 'DEBUG: Inside container - Starting E2E test execution'
+                                    echo 'DEBUG: Working directory:' \$(pwd)
+                                    echo 'DEBUG: PLAYWRIGHT_BASE_URL=' \$PLAYWRIGHT_BASE_URL
+
+                                    echo 'DEBUG: Installing npm dependencies...'
+                                    npm install 2>&1 | tee /tmp/npm-install.log || {
+                                        echo 'ERROR: npm install failed'
+                                        cat /tmp/npm-install.log
+                                        exit 1
+                                    }
+
+                                    echo 'DEBUG: npm install complete'
+                                    echo 'DEBUG: Starting Playwright tests...'
+                                    echo '=========================================='
+
+                                    npx playwright test --reporter=list,junit,json
+                                " || {
                                     EXIT_CODE=$?
                                     echo "ERROR: Playwright tests exited with code $EXIT_CODE"
 
