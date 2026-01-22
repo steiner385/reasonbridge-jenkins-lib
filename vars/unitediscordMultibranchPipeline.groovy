@@ -268,7 +268,7 @@ def call() {
                                     service=$(echo $service_port | cut -d: -f1)
                                     port=$(echo $service_port | cut -d: -f2)
                                     echo "Checking $service (port $port)..."
-                                    MAX_ATTEMPTS=60  # 60 attempts x 2 seconds = 2 minutes max
+                                    MAX_ATTEMPTS=30  # 30 attempts x 2 seconds = 1 minute max
 
                                     for i in $(seq 1 $MAX_ATTEMPTS); do
                                         # Check if container is running
@@ -285,26 +285,29 @@ def call() {
                                             continue
                                         fi
 
-                                        # Check if service is listening on its port (from within Docker network)
-                                        if docker compose -f docker-compose.e2e.yml exec -T $service curl -f -s http://localhost:$port/health > /dev/null 2>&1 || \
-                                           docker compose -f docker-compose.e2e.yml exec -T $service nc -z localhost $port 2>/dev/null; then
-                                            echo "✅ $service is ready and listening on port $port (attempt $i/$MAX_ATTEMPTS)"
+                                        # Check if service is responding on its health endpoint
+                                        # Hit the service from the Jenkins host (not inside container - alpine doesn't have curl)
+                                        if curl -f -s http://localhost:$port/health > /dev/null 2>&1; then
+                                            echo "✅ $service is ready and healthy on port $port (attempt $i/$MAX_ATTEMPTS)"
                                             break
                                         fi
 
                                         if [ $i -eq $MAX_ATTEMPTS ]; then
                                             echo "ERROR: $service did not become ready after $MAX_ATTEMPTS attempts"
-                                            echo "Container logs (last 30 lines):"
-                                            docker logs unite-${service}-e2e --tail 30
+                                            echo "Container logs (last 50 lines):"
+                                            docker logs unite-${service}-e2e --tail 50
+                                            echo ""
+                                            echo "Container inspect:"
+                                            docker inspect unite-${service}-e2e | grep -A 10 "State"
                                             exit 1
                                         fi
 
-                                        echo "⏳ Waiting for $service to listen on port $port (attempt $i/$MAX_ATTEMPTS)"
+                                        echo "⏳ Waiting for $service to respond on /health (attempt $i/$MAX_ATTEMPTS)"
                                         sleep 2
                                     done
                                 done
 
-                                echo "✅ All critical backend services are ready"
+                                echo "✅ All critical backend services are ready and healthy"
                             '''
 
                             // Check service health
