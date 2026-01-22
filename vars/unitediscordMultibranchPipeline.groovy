@@ -245,10 +245,10 @@ def call() {
                             sh '''
                                 if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
                                     echo "Using docker compose V2"
-                                    COMPOSE_PROJECT_NAME=$E2E_PROJECT_NAME docker compose -f docker-compose.e2e.yml up -d
+                                    COMPOSE_PROJECT_NAME=$E2E_PROJECT_NAME docker compose -f docker-compose.e2e.yml up -d --build
                                 else
                                     echo "Using docker-compose V1"
-                                    COMPOSE_PROJECT_NAME=$E2E_PROJECT_NAME docker-compose -f docker-compose.e2e.yml up -d
+                                    COMPOSE_PROJECT_NAME=$E2E_PROJECT_NAME docker-compose -f docker-compose.e2e.yml up -d --build
                                 fi
                             '''
 
