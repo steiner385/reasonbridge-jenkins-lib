@@ -250,7 +250,7 @@ def call() {
                             // Wait for infrastructure services to be healthy
                             echo "Waiting for infrastructure services to be healthy..."
                             sh '''
-                                timeout 60 sh -c 'until (docker compose -f docker-compose.e2e.yml ps 2>/dev/null || docker-compose -f docker-compose.e2e.yml ps) | grep -E "(postgres|redis)" | grep -q "healthy"; do sleep 2; done' || {
+                                timeout 60 sh -c 'until COMPOSE_PROJECT_NAME=unitediscord docker compose -f docker-compose.e2e.yml ps 2>/dev/null | grep -E "(postgres|redis)" | grep -q "healthy"; do sleep 2; done' || {
                                     echo "Warning: Timed out waiting for infrastructure services"
                                 }
                             '''
