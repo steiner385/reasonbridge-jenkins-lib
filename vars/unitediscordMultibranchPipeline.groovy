@@ -138,8 +138,10 @@ def call() {
 
             stage('Integration Tests') {
                 steps {
-                    script {
-                        try {
+                    // catchError marks stage as FAILURE (red) but build as UNSTABLE (yellow)
+                    // This gives accurate visual feedback while allowing pipeline to continue
+                    catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+                        script {
                             echo "=== Running Integration Tests ==="
                             echo "Branch: ${env.BRANCH_NAME ?: 'N/A'}"
                             echo "Tests: 124 integration tests (6 files)"
@@ -151,12 +153,6 @@ def call() {
                                 composeFile: 'docker-compose.test.yml'
                             )
                             echo "=== Integration Tests Complete ==="
-                        } catch (Exception e) {
-                            echo "⚠️  Integration tests failed"
-                            echo "Error: ${e.message}"
-                            // Mark as unstable but don't fail the build
-                            // Integration tests can have flaky issues, but we want to know about them
-                            currentBuild.result = 'UNSTABLE'
                         }
                     }
                 }
@@ -172,23 +168,26 @@ def call() {
                 // When condition physically removed - Jenkins DSL doesn't support commenting out structural elements
                 // The when block will be re-added after E2E infrastructure is validated
                 steps {
-                    script {
-                        try {
-                            echo "=== Running E2E Tests ==="
-                            echo "Branch: ${env.BRANCH_NAME}"
-                            echo "Test Suite: Playwright (301 tests, 240 active)"
-                            echo "Environment: Full production-like stack (infrastructure + all microservices + frontend)"
+                    // catchError marks stage as FAILURE (red) but build as UNSTABLE (yellow)
+                    // This gives accurate visual feedback while allowing pipeline to continue
+                    catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+                        script {
+                            try {
+                                echo "=== Running E2E Tests ==="
+                                echo "Branch: ${env.BRANCH_NAME}"
+                                echo "Test Suite: Playwright (301 tests, 240 active)"
+                                echo "Environment: Full production-like stack (infrastructure + all microservices + frontend)"
 
-                            // Clean up any existing E2E and integration test containers
-                            echo "Cleaning up existing containers and ports..."
+                                // Clean up any existing E2E and integration test containers
+                                echo "Cleaning up existing containers and ports..."
 
-                            // Use aggressive cleanup to remove all E2E-related resources
-                            // This handles containers with COMPOSE_PROJECT_NAME=e2e-build-* naming
-                            dockerCleanup.aggressiveE2ECleanup()
+                                // Use aggressive cleanup to remove all E2E-related resources
+                                // This handles containers with COMPOSE_PROJECT_NAME=e2e-build-* naming
+                                dockerCleanup.aggressiveE2ECleanup()
 
-                            // Also run compose down for both test and e2e environments
-                            dockerCompose.safe('down -v --remove-orphans', 'docker-compose.test.yml')
-                            dockerCompose.safe('down -v --remove-orphans', 'docker-compose.e2e.yml', env.E2E_PROJECT_NAME)
+                                // Also run compose down for both test and e2e environments
+                                dockerCompose.safe('down -v --remove-orphans', 'docker-compose.test.yml')
+                                dockerCompose.safe('down -v --remove-orphans', 'docker-compose.e2e.yml', env.E2E_PROJECT_NAME)
 
                             // Clean up stale networks that might block new network creation
                             dockerCleanup.cleanStaleNetworks()
@@ -445,28 +444,29 @@ def call() {
 
                             echo "=== E2E Tests Complete ==="
 
-                        } catch (Exception e) {
-                            // Show service logs for debugging
-                            echo "=== Service Logs (last 50 lines) ==="
-                            dockerCompose.safe('logs --tail=50', 'docker-compose.e2e.yml', env.E2E_PROJECT_NAME)
+                            } catch (Exception e) {
+                                // Show service logs for debugging
+                                echo "=== Service Logs (last 50 lines) ==="
+                                dockerCompose.safe('logs --tail=50', 'docker-compose.e2e.yml', env.E2E_PROJECT_NAME)
 
-                            echo "⚠️  E2E tests failed"
-                            echo "Error: ${e.message}"
-                            // Mark as unstable but don't fail the build
-                            currentBuild.result = 'UNSTABLE'
+                                echo "⚠️  E2E tests failed"
+                                echo "Error: ${e.message}"
+                                // Re-throw to let catchError handle build/stage result
+                                throw e
 
-                        } finally {
-                            // Always cleanup Docker services thoroughly
-                            echo "Stopping and removing all E2E services..."
-                            dockerCompose.safe('down -v --remove-orphans', 'docker-compose.e2e.yml', env.E2E_PROJECT_NAME)
+                            } finally {
+                                // Always cleanup Docker services thoroughly
+                                echo "Stopping and removing all E2E services..."
+                                dockerCompose.safe('down -v --remove-orphans', 'docker-compose.e2e.yml', env.E2E_PROJECT_NAME)
 
-                            // Clean up any playwright containers that might be left running
-                            sh '''
-                                docker ps -a --format '{{.Names}}' | grep -E '^playwright-e2e-' | xargs -r docker rm -f 2>/dev/null || true
-                            '''
+                                // Clean up any playwright containers that might be left running
+                                sh '''
+                                    docker ps -a --format '{{.Names}}' | grep -E '^playwright-e2e-' | xargs -r docker rm -f 2>/dev/null || true
+                                '''
 
-                            // Clean up this build's containers by project name pattern
-                            dockerCleanup.cleanContainersByPattern("${env.E2E_PROJECT_NAME}-", true)
+                                // Clean up this build's containers by project name pattern
+                                dockerCleanup.cleanContainersByPattern("${env.E2E_PROJECT_NAME}-", true)
+                            }
                         }
                     }
                 }
