@@ -40,6 +40,11 @@ def call() {
             NODE_OPTIONS = '--max-old-space-size=4096'
 
             // Multi-branch provides BRANCH_NAME, CHANGE_ID, CHANGE_TARGET automatically
+
+            // Unique project name per build for E2E Docker Compose isolation
+            // This prevents container name conflicts across concurrent builds
+            // Image caching still works because docker-compose.e2e.yml uses explicit image: tags
+            E2E_PROJECT_NAME = "e2e-build-${env.BUILD_NUMBER ?: 'local'}"
         }
 
         options {
@@ -192,7 +197,7 @@ def call() {
 
                             // Remove volumes and networks for both test and e2e
                             dockerCompose.safe('down -v --remove-orphans', 'docker-compose.test.yml')
-                            dockerCompose.safe('down -v --remove-orphans', 'docker-compose.e2e.yml', 'unitediscord')
+                            dockerCompose.safe('down -v --remove-orphans', 'docker-compose.e2e.yml', env.E2E_PROJECT_NAME)
 
                             // Diagnostic: Check what's using E2E ports before cleanup
                             echo "Checking processes on E2E ports (5434, 6381, 4568)..."
@@ -240,17 +245,17 @@ def call() {
                             sh '''
                                 if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
                                     echo "Using docker compose V2"
-                                    COMPOSE_PROJECT_NAME=unitediscord docker compose -f docker-compose.e2e.yml up -d
+                                    COMPOSE_PROJECT_NAME=$E2E_PROJECT_NAME docker compose -f docker-compose.e2e.yml up -d
                                 else
                                     echo "Using docker-compose V1"
-                                    COMPOSE_PROJECT_NAME=unitediscord docker-compose -f docker-compose.e2e.yml up -d
+                                    COMPOSE_PROJECT_NAME=$E2E_PROJECT_NAME docker-compose -f docker-compose.e2e.yml up -d
                                 fi
                             '''
 
                             // Wait for infrastructure services to be healthy
                             echo "Waiting for infrastructure services to be healthy..."
                             sh '''
-                                timeout 60 sh -c 'until COMPOSE_PROJECT_NAME=unitediscord docker compose -f docker-compose.e2e.yml ps 2>/dev/null | grep -E "(postgres|redis)" | grep -q "healthy"; do sleep 2; done' || {
+                                timeout 60 sh -c "until COMPOSE_PROJECT_NAME=$E2E_PROJECT_NAME docker compose -f docker-compose.e2e.yml ps 2>/dev/null | grep -E '(postgres|redis)' | grep -q 'healthy'; do sleep 2; done" || {
                                     echo "Warning: Timed out waiting for infrastructure services"
                                 }
                             '''
@@ -272,13 +277,13 @@ def call() {
 
                                     for i in $(seq 1 $MAX_ATTEMPTS); do
                                         # Check if container is running
-                                        CONTAINER_STATE=$(docker inspect --format='{{.State.Status}}' unite-${service}-e2e 2>/dev/null || echo "not_found")
+                                        CONTAINER_STATE=$(docker inspect --format='{{.State.Status}}' ${E2E_PROJECT_NAME}-${service}-1 2>/dev/null || echo "not_found")
 
                                         if [ "$CONTAINER_STATE" != "running" ]; then
                                             echo "⚠️  $service container state: $CONTAINER_STATE (attempt $i/$MAX_ATTEMPTS)"
                                             if [ $i -eq $MAX_ATTEMPTS ]; then
                                                 echo "ERROR: $service container is not running"
-                                                docker logs unite-${service}-e2e --tail 30 2>/dev/null || echo "No logs available"
+                                                docker logs ${E2E_PROJECT_NAME}-${service}-1 --tail 30 2>/dev/null || echo "No logs available"
                                                 exit 1
                                             fi
                                             sleep 2
@@ -288,8 +293,8 @@ def call() {
                                         # Check health from INSIDE the Docker network using a curl container
                                         # This avoids the Jenkins agent network isolation issue - Jenkins agents
                                         # run in Docker containers, so localhost doesn't reach E2E services
-                                        if docker run --rm --network unitediscord_unite-e2e curlimages/curl:latest \
-                                            curl -f -s "http://unite-${service}-e2e:$port/health" > /dev/null 2>&1; then
+                                        if docker run --rm --network ${E2E_PROJECT_NAME}_unite-e2e curlimages/curl:latest \
+                                            curl -f -s "http://${service}:$port/health" > /dev/null 2>&1; then
                                             echo "✅ $service is ready and healthy on port $port (attempt $i/$MAX_ATTEMPTS)"
                                             break
                                         fi
@@ -297,10 +302,10 @@ def call() {
                                         if [ $i -eq $MAX_ATTEMPTS ]; then
                                             echo "ERROR: $service did not become ready after $MAX_ATTEMPTS attempts"
                                             echo "Container logs (last 50 lines):"
-                                            docker logs unite-${service}-e2e --tail 50
+                                            docker logs ${E2E_PROJECT_NAME}-${service}-1 --tail 50
                                             echo ""
                                             echo "Container inspect:"
-                                            docker inspect unite-${service}-e2e | grep -A 10 "State"
+                                            docker inspect ${E2E_PROJECT_NAME}-${service}-1 | grep -A 10 "State"
                                             exit 1
                                         fi
 
@@ -323,7 +328,7 @@ def call() {
                                 # Run migrations from inside a container on the Docker network
                                 # This avoids host-to-container networking issues
                                 echo "Running Prisma migrations on E2E database..."
-                                COMPOSE_PROJECT_NAME=unitediscord docker compose -f docker-compose.e2e.yml exec -T postgres sh -c "
+                                COMPOSE_PROJECT_NAME=$E2E_PROJECT_NAME docker compose -f docker-compose.e2e.yml exec -T postgres sh -c "
                                     until pg_isready -U unite_test -d unite_test; do
                                         echo 'Waiting for postgres...';
                                         sleep 1;
@@ -341,10 +346,10 @@ def call() {
                             sh '''
                                 MAX_WAIT=60
                                 WAIT_COUNT=0
-                                until [ "$(docker inspect --format='{{.State.Health.Status}}' unite-frontend-e2e 2>/dev/null)" = "healthy" ]; do
+                                until [ "$(docker inspect --format='{{.State.Health.Status}}' ${E2E_PROJECT_NAME}-frontend-1 2>/dev/null)" = "healthy" ]; do
                                     if [ $WAIT_COUNT -ge $MAX_WAIT ]; then
                                         echo "ERROR: Frontend container did not become healthy after ${MAX_WAIT} seconds"
-                                        docker logs unite-frontend-e2e --tail 50
+                                        docker logs ${E2E_PROJECT_NAME}-frontend-1 --tail 50
                                         exit 1
                                     fi
                                     echo "Waiting for frontend health check... ($WAIT_COUNT/$MAX_WAIT)"
@@ -359,13 +364,13 @@ def call() {
                             sh '''
                                 MAX_ATTEMPTS=30
                                 for i in $(seq 1 $MAX_ATTEMPTS); do
-                                    if COMPOSE_PROJECT_NAME=unitediscord docker compose -f docker-compose.e2e.yml exec -T frontend curl -f -s http://localhost:80 > /dev/null 2>&1; then
+                                    if COMPOSE_PROJECT_NAME=$E2E_PROJECT_NAME docker compose -f docker-compose.e2e.yml exec -T frontend curl -f -s http://localhost:80 > /dev/null 2>&1; then
                                         echo "Frontend is accessible on Docker network"
                                         break
                                     fi
                                     if [ $i -eq $MAX_ATTEMPTS ]; then
                                         echo "ERROR: Frontend not accessible after $MAX_ATTEMPTS attempts"
-                                        COMPOSE_PROJECT_NAME=unitediscord docker compose -f docker-compose.e2e.yml logs frontend --tail 50
+                                        COMPOSE_PROJECT_NAME=$E2E_PROJECT_NAME docker compose -f docker-compose.e2e.yml logs frontend --tail 50
                                         exit 1
                                     fi
                                     echo "Attempt $i/$MAX_ATTEMPTS: Waiting for frontend to be accessible..."
@@ -380,7 +385,7 @@ def call() {
                             sh '''
                                 echo "DEBUG: =========================================="
                                 echo "DEBUG: Setting up Playwright test container"
-                                echo "DEBUG: Network: unitediscord_unite-e2e"
+                                echo "DEBUG: Network: ${E2E_PROJECT_NAME}_unite-e2e"
                                 echo "DEBUG: PLAYWRIGHT_BASE_URL: http://frontend:80"
                                 echo "DEBUG: Playwright version: v1.57.0-noble"
                                 echo "DEBUG: =========================================="
@@ -390,7 +395,7 @@ def call() {
                                 echo "Creating Playwright container: $CONTAINER_NAME"
                                 docker run -d \
                                     --name "$CONTAINER_NAME" \
-                                    --network unitediscord_unite-e2e \
+                                    --network ${E2E_PROJECT_NAME}_unite-e2e \
                                     -w /app/frontend \
                                     -e CI=true \
                                     -e E2E_DOCKER=true \
@@ -465,7 +470,7 @@ def call() {
                         } catch (Exception e) {
                             // Show service logs for debugging
                             echo "=== Service Logs (last 50 lines) ==="
-                            dockerCompose.safe('logs --tail=50', 'docker-compose.e2e.yml', 'unitediscord')
+                            dockerCompose.safe('logs --tail=50', 'docker-compose.e2e.yml', env.E2E_PROJECT_NAME)
 
                             echo "⚠️  E2E tests failed"
                             echo "Error: ${e.message}"
@@ -475,7 +480,7 @@ def call() {
                         } finally {
                             // Always cleanup Docker services
                             echo "Stopping and removing all E2E services..."
-                            dockerCompose.safe('down -v', 'docker-compose.e2e.yml', 'unitediscord')
+                            dockerCompose.safe('down -v', 'docker-compose.e2e.yml', env.E2E_PROJECT_NAME)
                         }
                     }
                 }
