@@ -182,53 +182,26 @@ def call() {
                             // Clean up any existing E2E and integration test containers
                             echo "Cleaning up existing containers and ports..."
 
-                            // Force remove all E2E containers (handles stale containers)
-                            sh '''
-                                # Remove E2E containers (use grep since docker -f name= doesn't support regex)
-                                docker ps -a --format '{{.Names}}' | grep -E 'unite-.*-e2e' | xargs -r docker rm -f 2>/dev/null || true
-                                docker ps -a --format '{{.Names}}' | grep -E '_feat_e2e-docker-compose' | xargs -r docker rm -f 2>/dev/null || true
+                            // Use aggressive cleanup to remove all E2E-related resources
+                            // This handles containers with COMPOSE_PROJECT_NAME=e2e-build-* naming
+                            dockerCleanup.aggressiveE2ECleanup()
 
-                                # Remove integration test containers (they use same ports: 5433, 6380, 4567)
-                                docker ps -a --format '{{.Names}}' | grep -E 'unite-.*-test' | xargs -r docker rm -f 2>/dev/null || true
-                                docker ps -a --format '{{.Names}}' | grep -E 'postgres.*test' | xargs -r docker rm -f 2>/dev/null || true
-                                docker ps -a --format '{{.Names}}' | grep -E 'redis.*test' | xargs -r docker rm -f 2>/dev/null || true
-                                docker ps -a --format '{{.Names}}' | grep -E 'localstack.*test' | xargs -r docker rm -f 2>/dev/null || true
-                            '''
-
-                            // Remove volumes and networks for both test and e2e
+                            // Also run compose down for both test and e2e environments
                             dockerCompose.safe('down -v --remove-orphans', 'docker-compose.test.yml')
                             dockerCompose.safe('down -v --remove-orphans', 'docker-compose.e2e.yml', env.E2E_PROJECT_NAME)
 
-                            // Diagnostic: Check what's using E2E ports before cleanup
-                            echo "Checking processes on E2E ports (5434, 6381, 4568)..."
-                            sh '''
-                                echo "=== Processes on port 5434 (postgres) ==="
-                                lsof -i :5434 2>/dev/null || echo "No process found on port 5434"
-                                echo "=== Processes on port 6381 (redis) ==="
-                                lsof -i :6381 2>/dev/null || echo "No process found on port 6381"
-                                echo "=== Processes on port 4568 (localstack) ==="
-                                lsof -i :4568 2>/dev/null || echo "No process found on port 4568"
-                            '''
+                            // Clean up stale networks that might block new network creation
+                            dockerCleanup.cleanStaleNetworks()
 
-                            // Force kill any processes on E2E ports
-                            echo "Killing processes on E2E ports..."
-                            sh '''
-                                # Kill processes on ports used by E2E environment
-                                for port in 5434 6381 4568; do
-                                    echo "Killing processes on port $port..."
-                                    (lsof -ti :$port 2>/dev/null || fuser $port/tcp 2>/dev/null) | xargs -r kill -9 2>/dev/null || true
-                                done
-                            '''
-
-                            // Wait for Docker to release ports (prevent "port already allocated" errors)
-                            echo "Waiting for Docker to release ports and clean up network namespaces..."
-                            sh 'sleep 10'
+                            // Wait for Docker to release resources
+                            echo "Waiting for Docker to release resources..."
+                            sh 'sleep 5'
 
                             // Verify cleanup
-                            echo "Verifying no containers remain..."
+                            echo "Verifying no E2E containers remain..."
                             sh '''
-                                echo "=== Remaining containers ==="
-                                docker ps -a | grep -E "(unite-.*-(test|e2e)|postgres|redis|localstack)" || echo "No test/e2e containers found"
+                                echo "=== Remaining E2E/test containers ==="
+                                docker ps -a --format '{{.Names}}' | grep -E '(e2e-build-|unite-.*-(test|e2e)|postgres|redis|localstack)' || echo "No test/e2e containers found - cleanup successful"
                             '''
 
                             // Install Playwright browsers (dependencies already in agent image)
@@ -478,9 +451,17 @@ def call() {
                             currentBuild.result = 'UNSTABLE'
 
                         } finally {
-                            // Always cleanup Docker services
+                            // Always cleanup Docker services thoroughly
                             echo "Stopping and removing all E2E services..."
-                            dockerCompose.safe('down -v', 'docker-compose.e2e.yml', env.E2E_PROJECT_NAME)
+                            dockerCompose.safe('down -v --remove-orphans', 'docker-compose.e2e.yml', env.E2E_PROJECT_NAME)
+
+                            // Clean up any playwright containers that might be left running
+                            sh '''
+                                docker ps -a --format '{{.Names}}' | grep -E '^playwright-e2e-' | xargs -r docker rm -f 2>/dev/null || true
+                            '''
+
+                            // Clean up this build's containers by project name pattern
+                            dockerCleanup.cleanContainersByPattern("${env.E2E_PROJECT_NAME}-", true)
                         }
                     }
                 }
