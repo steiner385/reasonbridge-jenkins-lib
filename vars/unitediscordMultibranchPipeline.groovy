@@ -364,15 +364,18 @@ def call() {
                                 echo "DEBUG: =========================================="
 
                                 CONTAINER_NAME="playwright-e2e-runner-$$"
+                                PLAYWRIGHT_URL="http://frontend:80"
 
                                 echo "Creating Playwright container: $CONTAINER_NAME"
+                                # Add --memory 4g to prevent OOM kills during npm ci
                                 docker run -d \
                                     --name "$CONTAINER_NAME" \
                                     --network ${E2E_PROJECT_NAME}_unite-e2e \
+                                    --memory 4g \
                                     -w /app/frontend \
                                     -e CI=true \
                                     -e E2E_DOCKER=true \
-                                    -e PLAYWRIGHT_BASE_URL=http://frontend:80 \
+                                    -e PLAYWRIGHT_BASE_URL=$PLAYWRIGHT_URL \
                                     -e SKIP_GLOBAL_SETUP_WAIT=true \
                                     mcr.microsoft.com/playwright:v1.57.0-noble \
                                     sleep infinity
@@ -389,20 +392,28 @@ def call() {
                                 docker exec "$CONTAINER_NAME" mkdir -p /app/coverage 2>/dev/null || true
 
                                 # Run npm install and Playwright tests
+                                # Note: Using npm install (not npm ci) because frontend uses pnpm lockfile
+                                # The tar copy includes node_modules from pnpm, but we may need to reinstall
                                 echo "Running npm install and Playwright tests..."
                                 docker exec "$CONTAINER_NAME" bash -c "
+                                    export PLAYWRIGHT_BASE_URL='http://frontend:80'
                                     echo 'DEBUG: Inside container - Starting E2E test execution'
                                     echo 'DEBUG: Working directory:' \$(pwd)
                                     echo 'DEBUG: PLAYWRIGHT_BASE_URL=' \$PLAYWRIGHT_BASE_URL
 
-                                    echo 'DEBUG: Installing npm dependencies...'
-                                    npm install 2>&1 | tee /tmp/npm-install.log || {
-                                        echo 'ERROR: npm install failed'
-                                        cat /tmp/npm-install.log
-                                        exit 1
-                                    }
+                                    # Check if node_modules exists and has playwright
+                                    if [ -d 'node_modules/@playwright/test' ]; then
+                                        echo 'DEBUG: node_modules exists with playwright, skipping npm install'
+                                    else
+                                        echo 'DEBUG: Installing npm dependencies...'
+                                        npm install 2>&1 | tee /tmp/npm-install.log || {
+                                            echo 'ERROR: npm install failed'
+                                            cat /tmp/npm-install.log
+                                            exit 1
+                                        }
+                                        echo 'DEBUG: npm install complete'
+                                    fi
 
-                                    echo 'DEBUG: npm install complete'
                                     echo 'DEBUG: Starting Playwright tests...'
                                     echo '=========================================='
 
