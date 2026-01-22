@@ -374,21 +374,24 @@ def call() {
                             '''
 
                             // Run Playwright tests inside a Docker container on the same network
-                            // This allows tests to access frontend at http://frontend:80 instead of localhost:9080
+                            // Use docker cp instead of volume mounts to avoid Docker-in-Docker issues
+                            // (Jenkins agents run in containers, so volume mounts don't work with sibling containers)
                             echo "Running Playwright tests inside Docker network..."
                             sh '''
                                 echo "DEBUG: =========================================="
-                                echo "DEBUG: About to execute docker run command"
+                                echo "DEBUG: Setting up Playwright test container"
                                 echo "DEBUG: Network: unitediscord_unite-e2e"
                                 echo "DEBUG: PLAYWRIGHT_BASE_URL: http://frontend:80"
                                 echo "DEBUG: Playwright version: v1.57.0-noble"
                                 echo "DEBUG: =========================================="
 
-                                # Create a test runner container based on the frontend build
-                                docker run --rm \
+                                # Create a named container (not --rm) so we can docker cp into it
+                                CONTAINER_NAME="playwright-e2e-runner-$$"
+
+                                echo "Creating Playwright container: $CONTAINER_NAME"
+                                docker create \
+                                    --name "$CONTAINER_NAME" \
                                     --network unitediscord_unite-e2e \
-                                    -v $(pwd)/frontend:/app/frontend \
-                                    -v $(pwd)/coverage:/app/coverage \
                                     -w /app/frontend \
                                     -e CI=true \
                                     -e E2E_DOCKER=true \
@@ -399,11 +402,11 @@ def call() {
                                         echo 'DEBUG: Inside container - Starting E2E test execution'
                                         echo 'DEBUG: Working directory:' \$(pwd)
                                         echo 'DEBUG: PLAYWRIGHT_BASE_URL=' \$PLAYWRIGHT_BASE_URL
-                                        echo 'DEBUG: Installing npm dependencies...'
+                                        ls -la /app/frontend/
 
+                                        echo 'DEBUG: Installing npm dependencies...'
                                         npm install 2>&1 | tee /tmp/npm-install.log || {
                                             echo 'ERROR: npm install failed'
-                                            echo 'ERROR: npm install log:'
                                             cat /tmp/npm-install.log
                                             exit 1
                                         }
@@ -413,14 +416,39 @@ def call() {
                                         echo '=========================================='
 
                                         npx playwright test --reporter=list,junit,json
-                                    " || {
-                                        EXIT_CODE=$?
-                                        echo "ERROR: Docker container exited with code $EXIT_CODE"
-                                        echo "ERROR: Playwright test execution failed"
-                                        exit $EXIT_CODE
-                                    }
+                                    "
 
-                                echo "DEBUG: docker run command completed successfully"
+                                # Copy frontend files into the container
+                                echo "Copying frontend files to container..."
+                                docker cp frontend/. "$CONTAINER_NAME":/app/frontend/
+
+                                # Create coverage directory in container
+                                docker exec "$CONTAINER_NAME" mkdir -p /app/coverage 2>/dev/null || true
+
+                                # Start the container and capture output
+                                echo "Starting Playwright tests..."
+                                docker start -a "$CONTAINER_NAME" || {
+                                    EXIT_CODE=$?
+                                    echo "ERROR: Playwright tests exited with code $EXIT_CODE"
+
+                                    # Copy results out even on failure
+                                    docker cp "$CONTAINER_NAME":/app/frontend/playwright-report ./frontend/ 2>/dev/null || true
+                                    docker cp "$CONTAINER_NAME":/app/frontend/test-results ./frontend/ 2>/dev/null || true
+
+                                    # Cleanup container
+                                    docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
+                                    exit $EXIT_CODE
+                                }
+
+                                # Copy test results back
+                                echo "Copying test results..."
+                                docker cp "$CONTAINER_NAME":/app/frontend/playwright-report ./frontend/ 2>/dev/null || true
+                                docker cp "$CONTAINER_NAME":/app/frontend/test-results ./frontend/ 2>/dev/null || true
+
+                                # Cleanup container
+                                docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
+
+                                echo "DEBUG: Playwright tests completed successfully"
                             '''
 
                             // Move test results
