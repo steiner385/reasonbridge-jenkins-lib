@@ -375,7 +375,7 @@ def call() {
                                 docker run -d \
                                     --name "$CONTAINER_NAME" \
                                     --network ${E2E_PROJECT_NAME}_unite-e2e \
-                                    --memory 4g \
+                                    --memory 6g \
                                     -w /app/frontend \
                                     -e CI=true \
                                     -e E2E_DOCKER=true \
