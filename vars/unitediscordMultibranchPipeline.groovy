@@ -418,8 +418,8 @@ def call() {
                                     echo 'DEBUG: Starting Playwright tests...'
                                     echo '=========================================='
 
-                                    # Use npx now that we have a working local @playwright/test
-                                    npx playwright test --reporter=list,junit,json
+                                    # Use reporters configured in playwright.config.ts (includes allure-playwright)
+                                    npx playwright test
                                 " || {
                                     EXIT_CODE=$?
                                     echo "ERROR: Playwright tests exited with code $EXIT_CODE"
