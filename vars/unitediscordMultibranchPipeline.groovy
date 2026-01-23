@@ -446,13 +446,8 @@ def call() {
 
                             // Move test results
                             sh '''
-                                mkdir -p coverage allure-results
+                                mkdir -p coverage
                                 mv frontend/playwright-report/junit.xml coverage/e2e-junit.xml 2>/dev/null || echo "No Playwright report to move"
-                                # Merge E2E Allure results into root allure-results directory
-                                if [ -d "frontend/allure-results" ]; then
-                                    mv frontend/allure-results/* allure-results/ 2>/dev/null || echo "No Allure results to move"
-                                    rmdir frontend/allure-results 2>/dev/null || true
-                                fi
                             '''
 
                             echo "=== E2E Tests Complete ==="
