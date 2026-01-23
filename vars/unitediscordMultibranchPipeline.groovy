@@ -409,10 +409,10 @@ def call() {
                                     echo 'DEBUG: PLAYWRIGHT_BASE_URL=' \$PLAYWRIGHT_BASE_URL
 
                                     # Remove broken local @playwright (pnpm symlinks break after tar copy)
-                                    # Then reinstall just @playwright/test - fast single package install
-                                    rm -rf node_modules/@playwright node_modules/playwright node_modules/playwright-core 2>/dev/null || true
-                                    echo 'DEBUG: Reinstalling @playwright/test...'
-                                    npm install @playwright/test --no-save --prefer-offline 2>/dev/null || npm install @playwright/test --no-save
+                                    # Then reinstall @playwright/test and allure-playwright for reporting
+                                    rm -rf node_modules/@playwright node_modules/playwright node_modules/playwright-core node_modules/allure-playwright 2>/dev/null || true
+                                    echo 'DEBUG: Reinstalling @playwright/test and allure-playwright...'
+                                    npm install @playwright/test allure-playwright --no-save --prefer-offline 2>/dev/null || npm install @playwright/test allure-playwright --no-save
                                     echo 'DEBUG: Playwright version:' \$(npx playwright --version)
 
                                     echo 'DEBUG: Starting Playwright tests...'
@@ -427,6 +427,7 @@ def call() {
                                     # Copy results out even on failure
                                     docker cp "$CONTAINER_NAME":/app/frontend/playwright-report ./frontend/ 2>/dev/null || true
                                     docker cp "$CONTAINER_NAME":/app/frontend/test-results ./frontend/ 2>/dev/null || true
+                                    docker cp "$CONTAINER_NAME":/app/frontend/allure-results ./frontend/ 2>/dev/null || true
 
                                     # Cleanup container
                                     docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
@@ -437,6 +438,7 @@ def call() {
                                 echo "Copying test results..."
                                 docker cp "$CONTAINER_NAME":/app/frontend/playwright-report ./frontend/ 2>/dev/null || true
                                 docker cp "$CONTAINER_NAME":/app/frontend/test-results ./frontend/ 2>/dev/null || true
+                                docker cp "$CONTAINER_NAME":/app/frontend/allure-results ./frontend/ 2>/dev/null || true
 
                                 # Cleanup container
                                 docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
@@ -446,8 +448,13 @@ def call() {
 
                             // Move test results
                             sh '''
-                                mkdir -p coverage
+                                mkdir -p coverage allure-results
                                 mv frontend/playwright-report/junit.xml coverage/e2e-junit.xml 2>/dev/null || echo "No Playwright report to move"
+                                # Merge E2E Allure results into root allure-results directory
+                                if [ -d "frontend/allure-results" ]; then
+                                    mv frontend/allure-results/* allure-results/ 2>/dev/null || echo "No Allure results to move"
+                                    rmdir frontend/allure-results 2>/dev/null || true
+                                fi
                             '''
 
                             echo "=== E2E Tests Complete ==="
