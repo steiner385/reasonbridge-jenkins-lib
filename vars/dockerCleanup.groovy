@@ -130,6 +130,17 @@ def aggressiveE2ECleanup() {
         # Prune unused networks (safe - only removes unused)
         docker network prune -f 2>/dev/null || true
 
+        # Kill any processes still using E2E ports (3001-3007, 5000, 9080)
+        # This catches orphaned processes from crashed containers
+        echo "=== Killing processes on E2E ports ==="
+        for port in 3001 3002 3003 3004 3005 3006 3007 5000 9080; do
+            PID=$(lsof -ti :$port 2>/dev/null || true)
+            if [ -n "$PID" ]; then
+                echo "Killing process $PID on port $port"
+                kill -9 $PID 2>/dev/null || true
+            fi
+        done
+
         # Wait for Docker to release resources
         sleep 3
 
