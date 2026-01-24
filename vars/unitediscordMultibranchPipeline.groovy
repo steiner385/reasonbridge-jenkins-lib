@@ -402,13 +402,15 @@ def call() {
                                 # Create coverage directory in container
                                 docker exec "$CONTAINER_NAME" mkdir -p /app/coverage 2>/dev/null || true
 
-                                # Run Playwright tests directly - no npm install needed!
-                                # The Playwright Docker image has @playwright/test pre-installed,
-                                # and all E2E tests only import from @playwright/test.
-                                # This saves ~40 seconds and significant memory vs npm install.
-                                # NOTE: We delete local node_modules/@playwright to use the global installation
-                                # since the tar-copied local version is incomplete (missing playwright peer dep).
-                                echo "Running Playwright tests (skipping npm install - using pre-installed Playwright)..."
+                                # Run Playwright tests using the official Playwright Docker image
+                                # The image (mcr.microsoft.com/playwright:v1.57.0-noble) has:
+                                #   - @playwright/test pre-installed
+                                #   - Chromium browser binaries (~400MB) pre-installed
+                                #   - All system dependencies for running browsers
+                                # We only need to npm install project dependencies (allure-playwright)
+                                # This eliminates the npm install @playwright/test step that was causing
+                                # intermittent OOM kills (exit code 137) on Jenkins agents.
+                                echo "Running Playwright tests with official Playwright Docker image..."
 
                                 # Start memory monitoring in background
                                 echo "=== Starting memory monitoring ==="
@@ -422,11 +424,11 @@ def call() {
                                     echo 'DEBUG: Working directory:' \$(pwd)
                                     echo 'DEBUG: PLAYWRIGHT_BASE_URL=' \$PLAYWRIGHT_BASE_URL
 
-                                    # Remove broken local @playwright (pnpm symlinks break after tar copy)
-                                    # Then reinstall @playwright/test and allure-playwright for reporting
-                                    rm -rf node_modules/@playwright node_modules/playwright node_modules/playwright-core node_modules/allure-playwright 2>/dev/null || true
-                                    echo 'DEBUG: Reinstalling @playwright/test and allure-playwright...'
-                                    npm install @playwright/test allure-playwright --no-save --prefer-offline 2>/dev/null || npm install @playwright/test allure-playwright --no-save
+                                    # Install project dependencies (allure-playwright, etc.)
+                                    # The official Playwright Docker image already has @playwright/test pre-installed
+                                    # This eliminates the ~400MB browser download that was causing OOM kills
+                                    echo 'DEBUG: Installing project dependencies (allure-playwright)...'
+                                    npm install --silent 2>&1 | tail -5 || echo 'npm install completed with warnings'
                                     echo 'DEBUG: Playwright version:' \$(npx playwright --version)
 
                                     echo 'DEBUG: Starting Playwright tests...'
