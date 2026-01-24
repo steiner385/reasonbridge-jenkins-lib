@@ -402,6 +402,13 @@ def call() {
                                 # NOTE: We delete local node_modules/@playwright to use the global installation
                                 # since the tar-copied local version is incomplete (missing playwright peer dep).
                                 echo "Running Playwright tests (skipping npm install - using pre-installed Playwright)..."
+
+                                # Start memory monitoring in background
+                                echo "=== Starting memory monitoring ==="
+                                docker stats --no-stream "$CONTAINER_NAME" > /tmp/memory-before-tests.log 2>&1
+                                docker stats "$CONTAINER_NAME" --format "{{.Container}},{{.MemUsage}},{{.MemPerc}},{{.CPUPerc}}" > /tmp/memory-during-tests.log 2>&1 &
+                                STATS_PID=$!
+
                                 docker exec "$CONTAINER_NAME" bash -c "
                                     export PLAYWRIGHT_BASE_URL='http://frontend:80'
                                     echo 'DEBUG: Inside container - Starting E2E test execution'
@@ -424,6 +431,17 @@ def call() {
                                     EXIT_CODE=$?
                                     echo "ERROR: Playwright tests exited with code $EXIT_CODE"
 
+                                    # Stop memory monitoring
+                                    kill $STATS_PID 2>/dev/null || true
+
+                                    # Display memory statistics
+                                    echo "=== Memory Usage Before Tests ==="
+                                    cat /tmp/memory-before-tests.log || echo "No pre-test memory stats"
+                                    echo "=== Memory Usage During Tests (last 20 samples) ==="
+                                    tail -20 /tmp/memory-during-tests.log || echo "No memory stats collected"
+                                    echo "=== Peak Memory Usage ==="
+                                    sort -t',' -k2 -h /tmp/memory-during-tests.log | tail -1 || echo "No peak memory data"
+
                                     # Copy results out even on failure
                                     docker cp "$CONTAINER_NAME":/app/frontend/playwright-report ./frontend/ 2>/dev/null || true
                                     docker cp "$CONTAINER_NAME":/app/frontend/test-results ./frontend/ 2>/dev/null || true
@@ -433,6 +451,17 @@ def call() {
                                     docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
                                     exit $EXIT_CODE
                                 }
+
+                                # Stop memory monitoring on success
+                                kill $STATS_PID 2>/dev/null || true
+
+                                # Display memory statistics on success too
+                                echo "=== Memory Usage Before Tests ==="
+                                cat /tmp/memory-before-tests.log || echo "No pre-test memory stats"
+                                echo "=== Memory Usage During Tests (last 20 samples) ==="
+                                tail -20 /tmp/memory-during-tests.log || echo "No memory stats collected"
+                                echo "=== Peak Memory Usage ==="
+                                sort -t',' -k2 -h /tmp/memory-during-tests.log | tail -1 || echo "No peak memory data"
 
                                 # Copy test results back
                                 echo "Copying test results..."
