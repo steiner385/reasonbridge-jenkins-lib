@@ -323,29 +323,8 @@ jobs:
           }
         }
         factory {
-          remoteJenkinsFileWorkflowBranchProjectFactory {
-            localMarker('')
-            matchBranches(false)
-            remoteJenkinsFile('Jenkinsfile.multibranch')
-            remoteJenkinsFileSCM {
-              gitSCM {
-                userRemoteConfigs {
-                  userRemoteConfig {
-                    name('origin')
-                    url('https://github.com/steiner385/reasonbridge-jenkins-lib.git')
-                    refspec('main')
-                    credentialsId('github-credentials')
-                  }
-                }
-                branches {
-                  branchSpec {
-                    name('main')
-                  }
-                }
-                browser {}
-                gitTool('')
-              }
-            }
+          workflowBranchProjectFactory {
+            scriptPath('Jenkinsfile')
           }
         }
         orphanedItemStrategy {
