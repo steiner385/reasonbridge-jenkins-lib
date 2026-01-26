@@ -67,9 +67,18 @@ def call(Map config = [:]) {
 
         script {
             if (fileExists('allure-results')) {
-                allure includeProperties: false,
-                       jdk: '',
-                       results: [[path: 'allure-results']]
+                def allureConfig = [
+                    includeProperties: false,
+                    jdk: '',
+                    results: [[path: 'allure-results']]
+                ]
+
+                // Add disableTrendGraph if specified (custom Allure plugin parameter)
+                if (config.disableTrendGraph != null) {
+                    allureConfig.disableTrendGraph = config.disableTrendGraph
+                }
+
+                allure allureConfig
             }
         }
     }
