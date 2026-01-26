@@ -177,14 +177,6 @@ def call() {
             }
 
             stage('E2E Tests') {
-                // Only run E2E tests on main and develop branches to reduce memory pressure
-                // Feature branches get lint + unit + integration tests only
-                when {
-                    anyOf {
-                        branch 'main'
-                        branch 'develop'
-                    }
-                }
                 steps {
                     // catchError marks stage as FAILURE (red) but build as UNSTABLE (yellow)
                     // This gives accurate visual feedback while allowing pipeline to continue
@@ -435,11 +427,12 @@ def call() {
                                     echo 'DEBUG: Working directory:' \$(pwd)
                                     echo 'DEBUG: PLAYWRIGHT_BASE_URL=' \$PLAYWRIGHT_BASE_URL
 
-                                    # Install project dependencies (allure-playwright, etc.)
+                                    # Install only allure-playwright reporter (not all devDependencies!)
                                     # The official Playwright Docker image already has @playwright/test pre-installed
-                                    # This eliminates the ~400MB browser download that was causing OOM kills
-                                    echo 'DEBUG: Installing project dependencies (allure-playwright)...'
-                                    npm install --silent 2>&1 | tail -5 || echo 'npm install completed with warnings'
+                                    # Installing only allure-playwright (~10MB) instead of all devDependencies (~500MB+)
+                                    # prevents memory bloat and OOM kills
+                                    echo 'DEBUG: Installing allure-playwright reporter...'
+                                    npm install allure-playwright --no-save --prefer-offline 2>&1 | tail -5 || npm install allure-playwright --no-save
                                     echo 'DEBUG: Playwright version:' \$(npx playwright --version)
 
                                     echo 'DEBUG: Starting Playwright tests...'
