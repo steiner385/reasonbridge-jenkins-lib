@@ -177,8 +177,14 @@ def call() {
             }
 
             stage('E2E Tests') {
-                // When condition physically removed - Jenkins DSL doesn't support commenting out structural elements
-                // The when block will be re-added after E2E infrastructure is validated
+                // Only run E2E tests on main and develop branches to reduce memory pressure
+                // Feature branches get lint + unit + integration tests only
+                when {
+                    anyOf {
+                        branch 'main'
+                        branch 'develop'
+                    }
+                }
                 steps {
                     // catchError marks stage as FAILURE (red) but build as UNSTABLE (yellow)
                     // This gives accurate visual feedback while allowing pipeline to continue
