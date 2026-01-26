@@ -4,7 +4,7 @@
 jenkins:
   systemMessage: |
     CI/CD Pipeline Server
-    Projects: KinDash, uniteDiscord
+    Projects: KinDash, ReasonBridge
 
   numExecutors: 0
   mode: EXCLUSIVE
@@ -166,7 +166,7 @@ unclassified:
               git:
                 remote: "https://github.com/steiner385/kindash-jenkins-lib.git"
                 credentialsId: "github-credentials"
-      - name: "unitediscord-lib"
+      - name: "reasonbridge-lib"
         defaultVersion: "main"
         implicit: false
         allowVersionOverride: true
@@ -174,7 +174,7 @@ unclassified:
           modernSCM:
             scm:
               git:
-                remote: "https://github.com/steiner385/unitediscord-jenkins-lib.git"
+                remote: "https://github.com/steiner385/reasonbridge-jenkins-lib.git"
                 credentialsId: "github-credentials"
 
   location:
@@ -306,14 +306,14 @@ jobs:
 
   # uniteDiscord Multi-branch Pipeline
   - script: |
-      multibranchPipelineJob('uniteDiscord-multibranch') {
-        displayName('uniteDiscord Branches')
-        description('Multi-branch pipeline for all uniteDiscord branches and PRs')
+      multibranchPipelineJob('ReasonBridge-ci') {
+        displayName('ReasonBridge Branches')
+        description('Multi-branch pipeline for all ReasonBridge branches and PRs')
         branchSources {
           github {
-            id('unitediscord-github-source')
+            id('reasonbridge-github-source')
             repoOwner('steiner385')
-            repository('uniteDiscord')
+            repository('ReasonBridge')
             scanCredentialsId('github-credentials')
             buildOriginBranch(true)
             buildOriginBranchWithPR(false)
@@ -332,7 +332,7 @@ jobs:
                 userRemoteConfigs {
                   userRemoteConfig {
                     name('origin')
-                    url('https://github.com/steiner385/unitediscord-jenkins-lib.git')
+                    url('https://github.com/steiner385/reasonbridge-jenkins-lib.git')
                     refspec('main')
                     credentialsId('github-credentials')
                   }
@@ -389,14 +389,14 @@ jobs:
 
   # uniteDiscord Nightly Build
   - script: |
-      pipelineJob('uniteDiscord-nightly') {
+      pipelineJob('ReasonBridge-nightly') {
         description('Nightly comprehensive build - full test suite, security audits')
         definition {
           cpsScm {
             scm {
               git {
                 remote {
-                  url('https://github.com/steiner385/unitediscord-jenkins-lib.git')
+                  url('https://github.com/steiner385/reasonbridge-jenkins-lib.git')
                   credentials('github-credentials')
                 }
                 branch('*/main')
