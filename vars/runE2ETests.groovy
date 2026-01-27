@@ -91,7 +91,8 @@ def call(Map config = [:]) {
         // Always publish reports
         publishReports(
             playwright: true,
-            allure: true
+            allure: true,
+            disableTrendGraph: true  // Hide Allure trend chart (keep JUnit trend only)
         )
 
         // Post-cleanup: Ensure Docker containers and ports are freed

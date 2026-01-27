@@ -93,6 +93,7 @@ pipeline {
                                     allure([
                                         includeProperties: false,
                                         jdk: '',
+                                        disableTrendGraph: true,  // Hide Allure trend chart (keep JUnit trend only)
                                         results: [[path: 'allure-results']]
                                     ])
                                 }
@@ -146,6 +147,7 @@ pipeline {
                                     allure([
                                         includeProperties: false,
                                         jdk: '',
+                                        disableTrendGraph: true,  // Hide Allure trend chart (keep JUnit trend only)
                                         results: [[path: 'allure-results']]
                                     ])
                                 }

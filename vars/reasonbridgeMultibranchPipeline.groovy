@@ -569,6 +569,7 @@ def call() {
                         allure([
                             includeProperties: false,
                             jdk: '',
+                            disableTrendGraph: true,  // Hide Allure trend chart (keep JUnit trend only)
                             results: existingDirs.collect { [path: it] }
                         ])
                     }
