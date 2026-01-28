@@ -430,11 +430,12 @@ def call() {
                                 PLAYWRIGHT_URL="http://frontend:80"
 
                                 echo "Creating Playwright container: $CONTAINER_NAME"
-                                # Use 4g memory - sufficient after fixing event listener memory leaks in E2E tests
+                                # Use 2g memory - peak usage is ~636MB, so 2GB provides ample headroom
+                                # Reduced from 4g to free host memory and prevent host-level OOM kills
                                 docker run -d \
                                     --name "$CONTAINER_NAME" \
                                     --network ${E2E_PROJECT_NAME}_unite-e2e \
-                                    --memory 4g \
+                                    --memory 2g \
                                     -w /app/frontend \
                                     -e CI=true \
                                     -e E2E_DOCKER=true \
