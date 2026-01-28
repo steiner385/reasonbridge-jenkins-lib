@@ -208,7 +208,7 @@ def call() {
                                 echo "Pre-pulling external Docker images..."
                                 sh '''
                                     echo "Pulling Playwright Docker image (~1.5GB)..."
-                                    docker pull mcr.microsoft.com/playwright:v1.57.0-noble
+                                    docker pull mcr.microsoft.com/playwright:v1.58.0-noble
 
                                     echo "Pulling curl image for health checks..."
                                     docker pull curlimages/curl:latest
@@ -450,7 +450,7 @@ def call() {
                                     -e E2E_DOCKER=true \
                                     -e PLAYWRIGHT_BASE_URL=$PLAYWRIGHT_URL \
                                     -e SKIP_GLOBAL_SETUP_WAIT=true \
-                                    mcr.microsoft.com/playwright:v1.57.0-noble \
+                                    mcr.microsoft.com/playwright:v1.58.0-noble \
                                     sleep infinity
 
                                 # Copy ONLY essential Playwright test files to container
@@ -496,7 +496,7 @@ def call() {
                                 docker exec "$CONTAINER_NAME" mkdir -p /app/coverage 2>/dev/null || true
 
                                 # Run Playwright tests using the official Playwright Docker image
-                                # The image (mcr.microsoft.com/playwright:v1.57.0-noble) has:
+                                # The image (mcr.microsoft.com/playwright:v1.58.0-noble) has:
                                 #   - @playwright/test pre-installed
                                 #   - Chromium browser binaries (~400MB) pre-installed
                                 #   - All system dependencies for running browsers
