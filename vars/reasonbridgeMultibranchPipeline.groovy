@@ -148,6 +148,11 @@ def call() {
             }
 
             stage('Integration Tests') {
+                options {
+                    // Acquire shared lock to prevent concurrent resource-intensive tests
+                    // This lock is shared across all multibranch pipelines to prevent OOM
+                    lock(resource: 'docker-test-environment')
+                }
                 steps {
                     // catchError marks stage as FAILURE (red) but build as UNSTABLE (yellow)
                     // This gives accurate visual feedback while allowing pipeline to continue
@@ -225,6 +230,11 @@ def call() {
                         def sourceBranch = env.CHANGE_BRANCH ?: env.BRANCH_NAME
                         return !(sourceBranch?.startsWith('staging/'))
                     }
+                }
+                options {
+                    // Acquire shared lock to prevent concurrent resource-intensive tests
+                    // This lock is shared across all multibranch pipelines to prevent OOM
+                    lock(resource: 'docker-test-environment')
                 }
                 steps {
                     // catchError marks stage as FAILURE (red) but build as UNSTABLE (yellow)
