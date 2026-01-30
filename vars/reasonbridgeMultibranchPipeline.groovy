@@ -141,7 +141,7 @@ def call() {
                     withAwsCredentials {
                         runUnitTests(
                             skipCheckout: true,
-                            testCommand: 'npx pnpm run test:unit'
+                            testCommand: 'npx pnpm run test:unit -- --coverage'
                         )
                     }
                 }
