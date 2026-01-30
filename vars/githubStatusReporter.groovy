@@ -57,7 +57,38 @@ def call(Map config = [:]) {
         echo "Using fallback repo name '${repo}' derived from job name"
     }
 
+    // For PRs, we need to use the PR head SHA, not the merge commit SHA
+    // GIT_COMMIT after checkout includes the merge result, but GitHub requires
+    // the status to be posted to the actual PR head commit
     def sha = env.GIT_COMMIT
+
+    if (env.CHANGE_ID) {
+        // This is a PR build - get the actual PR head SHA from CHANGE_BRANCH or git
+        try {
+            // Try to get the PR head commit (before merge with base branch)
+            def prHead = sh(script: '''
+                git rev-parse refs/remotes/origin/PR-${CHANGE_ID} 2>/dev/null || \
+                git rev-parse FETCH_HEAD 2>/dev/null || \
+                echo ""
+            ''', returnStdout: true).trim()
+
+            if (prHead && prHead.length() >= 7) {
+                sha = prHead
+                echo "Using PR head SHA: ${sha.take(7)} (CHANGE_ID: ${env.CHANGE_ID})"
+            } else {
+                // Fallback: try to extract from git log (the second parent is the PR head in a merge)
+                def prHeadFromMerge = sh(script: 'git rev-parse HEAD^2 2>/dev/null || echo ""', returnStdout: true).trim()
+                if (prHeadFromMerge && prHeadFromMerge.length() >= 7) {
+                    sha = prHeadFromMerge
+                    echo "Using PR head SHA from merge parent: ${sha.take(7)}"
+                } else {
+                    echo "WARNING: Could not determine PR head SHA, using merge commit: ${sha.take(7)}"
+                }
+            }
+        } catch (Exception e) {
+            echo "WARNING: Error getting PR head SHA: ${e.message}, using GIT_COMMIT: ${sha.take(7)}"
+        }
+    }
 
     if (!sha) {
         echo "WARNING: GIT_COMMIT not set, skipping GitHub status update"
