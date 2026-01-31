@@ -513,17 +513,17 @@ def call() {
 
                                 docker exec \
                                     -e PLAYWRIGHT_BASE_URL='http://frontend:80' \
+                                    -e CI=true \
                                     "$CONTAINER_NAME" bash -c "
                                     echo 'DEBUG: Inside container - Starting E2E test execution'
                                     echo 'DEBUG: Working directory:' \$(pwd)
                                     echo 'DEBUG: PLAYWRIGHT_BASE_URL=' \$PLAYWRIGHT_BASE_URL
+                                    echo 'DEBUG: CI=' \$CI
 
-                                    # Install only allure-playwright reporter (not all devDependencies!)
-                                    # The official Playwright Docker image already has @playwright/test pre-installed
-                                    # Installing only allure-playwright (~10MB) instead of all devDependencies (~500MB+)
-                                    # prevents memory bloat and OOM kills
-                                    echo 'DEBUG: Installing allure-playwright reporter...'
-                                    npm install allure-playwright --no-save --prefer-offline 2>&1 | tail -5 || npm install allure-playwright --no-save
+                                    # NOTE: No npm install needed here!
+                                    # - @playwright/test is pre-installed in the official Playwright Docker image
+                                    # - allure-playwright is skipped in CI (see playwright.config.ts)
+                                    # - This prevents memory spikes from npm install that caused OOM (exit 137)
                                     echo 'DEBUG: Playwright version:' \$(npx playwright --version)
 
                                     echo 'DEBUG: Starting Playwright tests...'
